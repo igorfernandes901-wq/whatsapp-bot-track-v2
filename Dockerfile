@@ -1,26 +1,6 @@
 # Use official Node.js image based on Debian slim for a lightweight container
 FROM node:20-slim
 
-# Install system dependencies required for headless Chromium/Puppeteer execution on Linux
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    procps \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libx11-xcb1 \
-    libxcb-dri3-0 \
-    libxtst6 \
-    libgbm1 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libxss1 \
-    libgtk-3-0 \
-    libxshmfence1 \
-    libglu1-mesa \
-    && rm -rf /var/lib/apt/lists/*
-
 # Set the working directory inside the container
 WORKDIR /app
 
