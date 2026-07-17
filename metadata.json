@@ -1,0 +1,6 @@
+{
+  "name": "Igor Track Teste",
+  "description": "Central de tracking de vendas via WhatsApp com redirecionamento de links, captura de leads, webhook de postback de pagamento e disparo automatizado para a API de Conversões do Meta (server-side).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
