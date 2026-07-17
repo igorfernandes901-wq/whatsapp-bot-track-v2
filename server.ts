@@ -192,7 +192,8 @@ async function startServer() {
       payload.phone || 
       payload.client_phone || 
       payload.cliente_telefone || 
-      payload.customer?.phone || 
+      payload.customer?.phone ||
+      payload.client_cel ||
       payload.customer?.mobile || 
       payload.buyer?.phone || 
       payload.client?.phone || 
