@@ -222,21 +222,71 @@ async function startServer() {
       payload.name || 
       '';
 
-    // Extrair valor da venda
-    let rawValue = 
-      payload.value || 
-      payload.price || 
-      payload.amount || 
-      payload.trans_valor || 
-      payload.valor ||
-      payload.purchase?.price?.value || 
-      0;
+    // Extrair valor da venda (priorizando a comissão de afiliado para Braip)
+    let value = 0;
+    let commissionFound = false;
 
-    let value = Number(rawValue);
-    // Tratar envio em centavos se aplicável (Kiwify ou outros)
-    if (value > 200 && !String(rawValue).includes('.') && !String(rawValue).includes(',')) {
-      if (payload.amount || rawStatus.includes('kiwify') || (source.token && source.token.includes('kiwify'))) {
-        value = value / 100;
+    // 1. Se payload.commissions existir e for um array, procurar a comissão de afiliado
+    if (payload.commissions && Array.isArray(payload.commissions)) {
+      const postbackType = String(payload.postback_type || '').trim();
+      
+      // Procurar item correspondente ao postback_type (ex: "Afiliado", "Produtor")
+      let commItem = payload.commissions.find((c: any) => c && String(c.type || '').trim() === postbackType);
+      
+      // Se não achar correspondência exata, procurar o item cujo "type" seja "Afiliado"
+      if (!commItem) {
+        commItem = payload.commissions.find((c: any) => c && String(c.type || '').trim() === 'Afiliado');
+      }
+
+      if (commItem && commItem.value !== undefined) {
+        const rawCommVal = Number(commItem.value);
+        if (!isNaN(rawCommVal)) {
+          value = rawCommVal / 100; // O valor vem em centavos, então divide por 100
+          commissionFound = true;
+          console.log(`[Postback Processor] Comissão de afiliado encontrada e utilizada: R$ ${value} (extraída do participante com tipo "${commItem.type}")`);
+        }
+      }
+    }
+
+    // 2. Se a comissão não foi encontrada ou não existe, caímos no comportamento de valor total como fallback de segurança
+    if (!commissionFound) {
+      const isBraip = !!(
+        payload.postback_type || 
+        payload.commissions || 
+        payload.trans_value || 
+        payload.trans_total_value ||
+        payload.trans_valor
+      );
+
+      let rawValue = 
+        payload.trans_total_value ||
+        payload.trans_value ||
+        payload.value || 
+        payload.price || 
+        payload.amount || 
+        payload.trans_valor || 
+        payload.valor ||
+        payload.purchase?.price?.value || 
+        0;
+
+      value = Number(rawValue);
+
+      // Tratar envio em centavos se aplicável
+      if (!String(rawValue).includes('.') && !String(rawValue).includes(',')) {
+        if (isBraip) {
+          // Os campos trans_value e trans_total_value da Braip SEMPRE vêm em centavos.
+          // Dividimos por 100 de forma incondicional para converter em reais.
+          value = value / 100;
+          console.log(`[Postback Processor] Fallback para valor total da Braip convertido de centavos: R$ ${value}`);
+        } else if (value > 200) {
+          // Tratar outras plataformas como Kiwify se aplicável
+          if (payload.amount || rawStatus.includes('kiwify') || (source.token && source.token.includes('kiwify'))) {
+            value = value / 100;
+            console.log(`[Postback Processor] Fallback para valor total de Kiwify convertido de centavos: R$ ${value}`);
+          }
+        }
+      } else {
+        console.log(`[Postback Processor] Fallback para valor total com decimais: R$ ${value}`);
       }
     }
 
