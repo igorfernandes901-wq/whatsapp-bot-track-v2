@@ -1,6 +1,13 @@
 # Use official Node.js image based on Debian slim for a lightweight container
 FROM node:20-slim
 
+# Install system dependencies required for compiling native addons (like better-sqlite3)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory inside the container
 WORKDIR /app
 
