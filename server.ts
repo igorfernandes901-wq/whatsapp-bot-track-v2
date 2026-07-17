@@ -504,20 +504,32 @@ async function startServer() {
   // Stats summary
   app.get('/api/config/domain', (req, res) => {
     try {
-      let appUrl = process.env.APP_URL || '';
-      
-      // If the appUrl contains "ais-dev-", map it to the stable production "ais-pre-" URL
-      if (appUrl.includes('ais-dev-')) {
-        appUrl = appUrl.replace('ais-dev-', 'ais-pre-');
+      // 1. Check for manual environment variable override (e.g. PUBLIC_BASE_URL or APP_BASE_URL)
+      let appUrl = process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || '';
+
+      if (appUrl) {
+        console.log(`[Domain Check] Using environment variable override: ${appUrl}`);
+      } else {
+        // 2. Dynamic auto-detection (Option 2)
+        const host = req.get('host');
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const detectedUrl = `${protocol}://${host}`;
+
+        // If we are in Google AI Studio environment, we fallback to the mapped "ais-pre-" URL
+        // to keep the developer preview experience working flawlessly.
+        const isRender = process.env.RENDER || host?.includes('onrender.com');
+        if (process.env.APP_URL && !isRender) {
+          appUrl = process.env.APP_URL;
+          if (appUrl.includes('ais-dev-')) {
+            appUrl = appUrl.replace('ais-dev-', 'ais-pre-');
+          }
+          console.log(`[Domain Check] AI Studio environment detected. Using mapped preview URL: ${appUrl}`);
+        } else {
+          appUrl = detectedUrl;
+          console.log(`[Domain Check] Dynamically detected URL: ${appUrl}`);
+        }
       }
-      
-      // Fallback to the stable shared app URL of this workspace
-      if (!appUrl) {
-        appUrl = 'https://ais-pre-azhebk2u6vw5537f4tx7sp-760093882049.us-east1.run.app';
-      }
-      
-      console.log(`[Domain Check] Derived appUrl: ${appUrl}`);
-      
+
       return res.json({
         appUrl
       });
