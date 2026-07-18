@@ -259,11 +259,11 @@ export async function connectToWhatsApp(): Promise<void> {
         if (m.type !== 'notify') return;
 
         for (const msg of m.messages) {
-          // Skip messages sent by me (outgoing handled differently if needed, let's capture incoming)
           const isFromMe = msg.key.fromMe;
           const remoteJid = msg.key.remoteJid;
+          console.log('[JID Debug] remoteJid recebido:', remoteJid, '| fromMe:', isFromMe);
           
-          if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+          if (!remoteJid || (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid'))) continue;
 
           // Clean phone number (extract digits before @)
           const cleanPhone = remoteJid.split('@')[0];
