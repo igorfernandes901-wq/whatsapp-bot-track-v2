@@ -32,6 +32,10 @@ import { motion, AnimatePresence } from 'motion/react';
 interface Stats {
   clicksCount: number;
   leadsCount: number;
+  trackedLeadsCount?: number;
+  untrackedLeadsCount?: number;
+  ctwaLeadsCount?: number;
+  organicLeadsCount?: number;
   approvedSalesCount: number;
   approvedSalesRevenue: number;
   conversionRate: number;
@@ -105,6 +109,10 @@ export default function App() {
   const [stats, setStats] = useState<Stats>({
     clicksCount: 0,
     leadsCount: 0,
+    trackedLeadsCount: 0,
+    untrackedLeadsCount: 0,
+    ctwaLeadsCount: 0,
+    organicLeadsCount: 0,
     approvedSalesCount: 0,
     approvedSalesRevenue: 0,
     conversionRate: 0
@@ -898,8 +906,24 @@ export default function App() {
                       </div>
                     </div>
                     <div className="mt-4">
-                      <span className="text-3xl font-mono text-white tracking-tight">{stats.leadsCount}</span>
-                      <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-tight font-mono">Contatos vinculados</p>
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-3xl font-mono text-white tracking-tight">{stats.leadsCount}</span>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-tight font-mono">Contatos</p>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-[#1F1F1F]/60 flex flex-col gap-1 text-[9px] font-mono uppercase tracking-wider">
+                        <div className="flex justify-between items-center text-[#00FF9D]">
+                          <span>Campanhas Site (cl_xxx):</span>
+                          <span className="font-bold font-mono">{stats.trackedLeadsCount ?? 0}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[#38BDF8]">
+                          <span>Ad Nativo Meta (CTWA):</span>
+                          <span className="font-bold font-mono">{stats.ctwaLeadsCount ?? 0}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[#FF5F5F]">
+                          <span>Sem Rastreamento:</span>
+                          <span className="font-bold font-mono">{stats.organicLeadsCount ?? 0}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -1258,13 +1282,17 @@ export default function App() {
                             <div className="space-y-1 font-mono">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-white text-sm">{lead.phone}</span>
-                                {lead.utm_campaign ? (
+                                {lead.click_id ? (
                                   <span className="bg-[#1A3D2F]/60 text-[#00FF9D] text-[9px] font-mono px-2 py-0.5 rounded border border-[#00FF9D]/30 uppercase tracking-wide">
-                                    {lead.utm_campaign}
+                                    {lead.utm_campaign || 'Rastreado'} (Site)
+                                  </span>
+                                ) : lead.ctwa_clid ? (
+                                  <span className="bg-[#1A2D3D]/60 text-[#38BDF8] text-[9px] font-mono px-2 py-0.5 rounded border border-[#38BDF8]/30 uppercase tracking-wide">
+                                    Ad Nativo Meta (CTWA)
                                   </span>
                                 ) : (
-                                  <span className="bg-[#1C1C1C] border border-[#1F1F1F] text-gray-500 text-[9px] px-2 py-0.5 rounded uppercase font-mono">
-                                    Sem Campanha
+                                  <span className="bg-[#3D1A1A]/60 text-[#FF5F5F] text-[9px] font-mono px-2 py-0.5 rounded border border-[#FF5F5F]/30 uppercase tracking-wide">
+                                    Sem Rastreamento
                                   </span>
                                 )}
                               </div>
@@ -1298,8 +1326,14 @@ export default function App() {
                         <div className="p-4 border-b border-[#1F1F1F] bg-[#0A0A0A] flex items-center justify-between">
                           <div className="font-mono">
                             <span className="block font-bold text-white text-sm">{activeChatLead.phone}</span>
-                            <span className="text-[10px] text-[#00FF9D] font-semibold uppercase">
-                              {activeChatLead.utm_campaign ? `Campanha: ${activeChatLead.utm_campaign}` : 'Lead Orgânico'}
+                            <span className="text-[10px] font-semibold uppercase font-mono">
+                              {activeChatLead.click_id ? (
+                                <span className="text-[#00FF9D]">Campanha Site: {activeChatLead.utm_campaign || 'Rastreado'}</span>
+                              ) : activeChatLead.ctwa_clid ? (
+                                <span className="text-[#38BDF8]">Meta Ad Nativo (CTWA)</span>
+                              ) : (
+                                <span className="text-[#FF5F5F]">Sem rastreamento / Orgânico</span>
+                              )}
                             </span>
                           </div>
                           <button

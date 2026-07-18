@@ -89,6 +89,14 @@ db.exec(`
   );
 `);
 
+// Safe migration to add ctwa_clid column to leads table if it doesn't exist
+try {
+  db.exec("ALTER TABLE leads ADD COLUMN ctwa_clid TEXT");
+  console.log("[Database] Successfully added ctwa_clid column to leads table.");
+} catch (e) {
+  // Column already exists or error is expected if already added
+}
+
 // Types
 export interface Product {
   id: number;
@@ -117,6 +125,7 @@ export interface Lead {
   first_message?: string;
   click_id?: string;
   utm_campaign?: string;
+  ctwa_clid?: string;
   created_at: string;
 }
 
@@ -223,7 +232,7 @@ export const dbActions = {
     return null;
   },
 
-  saveLead(phone: string, first_message: string, click_id?: string): Lead {
+  saveLead(phone: string, first_message: string, click_id?: string, ctwa_clid?: string): Lead {
     // If click_id is provided, resolve campaign from the click
     let utm_campaign = '';
     if (click_id) {
@@ -235,22 +244,23 @@ export const dbActions = {
 
     const existing = this.getLeadByPhone(phone);
     if (existing) {
-      // Update first_message if not set, or update click_id if provided
+      // Update first_message if not set, update click_id if provided, and update ctwa_clid if provided
       const stmt = db.prepare(`
         UPDATE leads 
         SET first_message = COALESCE(?, first_message),
             click_id = COALESCE(?, click_id),
-            utm_campaign = COALESCE(NULLIF(?, ''), utm_campaign)
+            utm_campaign = COALESCE(NULLIF(?, ''), utm_campaign),
+            ctwa_clid = COALESCE(?, ctwa_clid)
         WHERE phone = ?
       `);
-      stmt.run(first_message || null, click_id || null, utm_campaign || null, phone);
+      stmt.run(first_message || null, click_id || null, utm_campaign || null, ctwa_clid || null, phone);
       return this.getLeadByPhone(phone)!;
     } else {
       const stmt = db.prepare(`
-        INSERT INTO leads (phone, first_message, click_id, utm_campaign)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO leads (phone, first_message, click_id, utm_campaign, ctwa_clid)
+        VALUES (?, ?, ?, ?, ?)
       `);
-      stmt.run(phone, first_message, click_id || null, utm_campaign || null);
+      stmt.run(phone, first_message, click_id || null, utm_campaign || null, ctwa_clid || null);
       return this.getLeadByPhone(phone)!;
     }
   },
@@ -360,6 +370,18 @@ export const dbActions = {
     // Total leads
     const leadsCount = (db.prepare('SELECT COUNT(*) as count FROM leads').get() as { count: number }).count;
 
+    // Total leads with tracking (click_id exists)
+    const trackedLeadsCount = (db.prepare('SELECT COUNT(*) as count FROM leads WHERE click_id IS NOT NULL AND click_id != ""').get() as { count: number }).count;
+
+    // Total leads without tracking (click_id is NULL or empty)
+    const untrackedLeadsCount = (db.prepare('SELECT COUNT(*) as count FROM leads WHERE click_id IS NULL OR click_id = ""').get() as { count: number }).count;
+
+    // Total CTWA leads (has ctwa_clid but no click_id)
+    const ctwaLeadsCount = (db.prepare('SELECT COUNT(*) as count FROM leads WHERE ctwa_clid IS NOT NULL AND ctwa_clid != "" AND (click_id IS NULL OR click_id = "")').get() as { count: number }).count;
+
+    // Total organic/untracked leads (neither click_id nor ctwa_clid exists)
+    const organicLeadsCount = (db.prepare('SELECT COUNT(*) as count FROM leads WHERE (click_id IS NULL OR click_id = "") AND (ctwa_clid IS NULL OR ctwa_clid = "")').get() as { count: number }).count;
+
     // Total approved sales count
     const approvedSalesCount = (db.prepare("SELECT COUNT(*) as count FROM sales_events WHERE status = 'Pagamento Aprovado'").get() as { count: number }).count;
 
@@ -372,6 +394,10 @@ export const dbActions = {
     return {
       clicksCount,
       leadsCount,
+      trackedLeadsCount,
+      untrackedLeadsCount,
+      ctwaLeadsCount,
+      organicLeadsCount,
       approvedSalesCount,
       approvedSalesRevenue,
       conversionRate

@@ -189,11 +189,11 @@ async function startServer() {
 
     // Extrair telefone do comprador
     const rawPhone = 
+      payload.client_cel ||
       payload.phone || 
       payload.client_phone || 
       payload.cliente_telefone || 
-      payload.customer?.phone ||
-      payload.client_cel ||
+      payload.customer?.phone || 
       payload.customer?.mobile || 
       payload.buyer?.phone || 
       payload.client?.phone || 
@@ -371,6 +371,10 @@ async function startServer() {
           fbclid = click_id;
           console.log(`[Postback Processor] Click record not found for click_id "${click_id}". Using click_id directly as FBCLID.`);
         }
+      } else if (lead.ctwa_clid) {
+        // Fallback to ctwa_clid (Meta Click-to-WhatsApp Ad Click ID) if no cl_xxx is present
+        fbclid = lead.ctwa_clid;
+        console.log(`[Postback Processor] Matched via Click-to-WhatsApp (CTWA)! Using ctwa_clid as FBCLID: "${fbclid}"`);
       }
     } else {
       console.log(`[Postback Processor] No existing lead found for phone ${cleanPhone}. Saving standalone event.`);

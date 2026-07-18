@@ -179,6 +179,52 @@ export async function connectToWhatsApp(): Promise<void> {
       }
     });
 
+    // Helper function to recursively find Facebook click ID (ctwa_clid) or other tracking parameters
+    const extractCtwaClid = (obj: any): string | null => {
+      if (!obj) return null;
+
+      // Handle Buffer/Uint8Array values commonly used in Baileys contextInfo.conversionData
+      if (Buffer.isBuffer(obj) || obj instanceof Uint8Array) {
+        try {
+          const str = Buffer.from(obj).toString('utf-8');
+          if (str) {
+            // Try to match ctwa_clid pattern or any 15+ alphanumeric characters
+            const match = str.match(/ctwa_clid[":\s]+([a-zA-Z0-9_-]+)/i) || str.match(/\b([a-zA-Z0-9_-]{15,})\b/);
+            if (match) return match[1];
+            return str; // Return raw string as fallback
+          }
+        } catch (_) {}
+      }
+
+      if (typeof obj === 'object') {
+        // Check standard fields
+        if (obj.ctwa_clid && typeof obj.ctwa_clid === 'string') return obj.ctwa_clid;
+        if (obj.ctwaClid && typeof obj.ctwaClid === 'string') return obj.ctwaClid;
+        if (obj.conversion_data && typeof obj.conversion_data === 'string') return obj.conversion_data;
+        if (obj.conversionData) {
+          const res = extractCtwaClid(obj.conversionData);
+          if (res) return res;
+        }
+
+        // Recursively check all properties
+        for (const key of Object.keys(obj)) {
+          try {
+            const val = obj[key];
+            if (typeof val === 'object' && val !== null) {
+              const res = extractCtwaClid(val);
+              if (res) return res;
+            } else if (typeof val === 'string') {
+              if (key.toLowerCase().includes('clid') || key.toLowerCase() === 'referral') {
+                if (val.length > 10) return val;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      return null;
+    };
+
     sock.ev.on('messages.upsert', async (m) => {
       if (m.type !== 'notify') return;
 
@@ -193,22 +239,32 @@ export async function connectToWhatsApp(): Promise<void> {
         const cleanPhone = remoteJid.split('@')[0];
         
         // Extract message content
-        const messageText = 
+        let messageText = 
           msg.message?.conversation || 
           msg.message?.extendedTextMessage?.text || 
           msg.message?.imageMessage?.caption || 
           '';
 
-        if (!messageText) continue;
-
         const direction = isFromMe ? 'outgoing' : 'incoming';
+
+        // Log complete payload of received message for CTWA Click-to-WhatsApp debugging
+        if (!isFromMe) {
+          console.log(`[WhatsApp CTWA Debug] FULL MESSAGE PAYLOAD from ${cleanPhone}:`, JSON.stringify(msg, null, 2));
+          
+          if (!messageText) {
+            messageText = '[Mensagem de Mídia/Botão/Meta Click-to-WhatsApp]';
+          }
+        }
+
+        if (!messageText && isFromMe) continue;
+
         console.log(`[WhatsApp] Message received from ${cleanPhone} (${direction}): "${messageText}"`);
 
         // Always log message in the db
         dbActions.logMessage(cleanPhone, messageText, direction);
 
         if (!isFromMe) {
-          // Look for click_id with 'cl_' prefix in the message
+          // 1. Look for click_id with 'cl_' prefix in the message (Site campaigns)
           const clickIdMatch = messageText.match(/\bcl_[a-zA-Z0-9]{8,15}\b/);
           let matchedClickId: string | undefined = undefined;
 
@@ -217,8 +273,14 @@ export async function connectToWhatsApp(): Promise<void> {
             console.log(`[WhatsApp] Matched Click ID: ${matchedClickId} in message from ${cleanPhone}`);
           }
 
-          // Save/Update lead
-          dbActions.saveLead(cleanPhone, messageText, matchedClickId);
+          // 2. Look for ctwa_clid (Meta Click-to-WhatsApp Ad conversion data)
+          const matchedCtwaClid = extractCtwaClid(msg);
+          if (matchedCtwaClid) {
+            console.log(`[WhatsApp CTWA Debug] Successfully extracted ctwa_clid: ${matchedCtwaClid} from incoming message of ${cleanPhone}`);
+          }
+
+          // Save/Update lead (with optional cl_xxx and ctwa_clid in parallel)
+          dbActions.saveLead(cleanPhone, messageText, matchedClickId, matchedCtwaClid || undefined);
         }
       }
     });
