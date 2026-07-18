@@ -206,46 +206,50 @@ export async function connectToWhatsApp(): Promise<void> {
       }
     });
 
-    // Helper function to recursively find Facebook click ID (ctwa_clid) or other tracking parameters
-    const extractCtwaClid = (obj: any): string | null => {
-      if (!obj) return null;
+    // Helper function to find and extract Facebook click ID (ctwa_clid) or ad signals directly from contextInfo
+    const extractCtwaClid = (msg: any): string | null => {
+      if (!msg || !msg.message) return null;
 
-      // Handle Buffer/Uint8Array values commonly used in Baileys contextInfo.conversionData
-      if (Buffer.isBuffer(obj) || obj instanceof Uint8Array) {
-        try {
-          const str = Buffer.from(obj).toString('utf-8');
-          if (str) {
-            // Try to match ctwa_clid pattern or any 15+ alphanumeric characters
-            const match = str.match(/ctwa_clid[":\s]+([a-zA-Z0-9_-]+)/i) || str.match(/\b([a-zA-Z0-9_-]{15,})\b/);
-            if (match) return match[1];
-            return str; // Return raw string as fallback
-          }
-        } catch (_) {}
+      let contextInfo: any = null;
+      const messageContent = msg.message;
+
+      // Find contextInfo inside any nested message object (extendedTextMessage, imageMessage, videoMessage, etc.)
+      for (const key of Object.keys(messageContent)) {
+        const subMsg = messageContent[key];
+        if (subMsg && typeof subMsg === 'object' && subMsg.contextInfo) {
+          contextInfo = subMsg.contextInfo;
+          break;
+        }
       }
 
-      if (typeof obj === 'object') {
-        // Check standard fields
-        if (obj.ctwa_clid && typeof obj.ctwa_clid === 'string') return obj.ctwa_clid;
-        if (obj.ctwaClid && typeof obj.ctwaClid === 'string') return obj.ctwaClid;
-        if (obj.conversion_data && typeof obj.conversion_data === 'string') return obj.conversion_data;
-        if (obj.conversionData) {
-          const res = extractCtwaClid(obj.conversionData);
-          if (res) return res;
-        }
+      if (!contextInfo && messageContent.contextInfo) {
+        contextInfo = messageContent.contextInfo;
+      }
 
-        // Recursively check all properties
-        for (const key of Object.keys(obj)) {
-          try {
-            const val = obj[key];
-            if (typeof val === 'object' && val !== null) {
-              const res = extractCtwaClid(val);
-              if (res) return res;
-            } else if (typeof val === 'string') {
-              if (key.toLowerCase().includes('clid') || key.toLowerCase() === 'referral') {
-                if (val.length > 10) return val;
-              }
-            }
-          } catch (_) {}
+      if (!contextInfo) return null;
+
+      // Log contextInfo.ctwaSignals and contextInfo.externalAdReply if they exist for visual diagnostics
+      if (contextInfo.ctwaSignals !== undefined || contextInfo.externalAdReply !== undefined) {
+        console.log('[WhatsApp CTWA ContextInfo Debug] ctwaSignals:', contextInfo.ctwaSignals);
+        console.log('[WhatsApp CTWA ContextInfo Debug] externalAdReply:', JSON.stringify(contextInfo.externalAdReply, null, 2));
+      }
+
+      // 1. If contextInfo.ctwaSignals exists and is not "none", return it
+      if (contextInfo.ctwaSignals && typeof contextInfo.ctwaSignals === 'string' && contextInfo.ctwaSignals.toLowerCase() !== 'none') {
+        console.log(`[WhatsApp CTWA Debug] Found ctwaSignals: ${contextInfo.ctwaSignals}`);
+        return contextInfo.ctwaSignals;
+      }
+
+      // 2. Check contextInfo.externalAdReply
+      if (contextInfo.externalAdReply && typeof contextInfo.externalAdReply === 'object') {
+        const adReply = contextInfo.externalAdReply;
+        if (adReply.sourceId && typeof adReply.sourceId === 'string') {
+          console.log(`[WhatsApp CTWA Debug] Found sourceId in externalAdReply: ${adReply.sourceId}`);
+          return adReply.sourceId;
+        }
+        if (adReply.ctwaClid && typeof adReply.ctwaClid === 'string') {
+          console.log(`[WhatsApp CTWA Debug] Found ctwaClid in externalAdReply: ${adReply.ctwaClid}`);
+          return adReply.ctwaClid;
         }
       }
 
