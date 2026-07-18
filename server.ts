@@ -371,8 +371,12 @@ async function startServer() {
           fbclid = click_id;
           console.log(`[Postback Processor] Click record not found for click_id "${click_id}". Using click_id directly as FBCLID.`);
         }
+      } else if (lead.unique_event_id) {
+        // Use unique_event_id as FBCLID instead of static campaign/ad sourceId (ctwa_clid)
+        fbclid = lead.unique_event_id;
+        console.log(`[Postback Processor] Matched via Click-to-WhatsApp (CTWA)! Using unique_event_id as FBCLID: "${fbclid}" (campaign sourceId: "${lead.ctwa_clid}")`);
       } else if (lead.ctwa_clid) {
-        // Fallback to ctwa_clid (Meta Click-to-WhatsApp Ad Click ID) if no cl_xxx is present
+        // Fallback to ctwa_clid (Meta Click-to-WhatsApp Ad Click ID) if no cl_xxx or unique_event_id is present
         fbclid = lead.ctwa_clid;
         console.log(`[Postback Processor] Matched via Click-to-WhatsApp (CTWA)! Using ctwa_clid as FBCLID: "${fbclid}"`);
       }

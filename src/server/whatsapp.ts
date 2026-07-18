@@ -94,6 +94,15 @@ export async function disconnectWhatsApp(): Promise<void> {
   }
 }
 
+function generateCtwaUniqueEventId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let rand = '';
+  for (let i = 0; i < 10; i++) {
+    rand += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `ctwa_${rand}`;
+}
+
 export async function connectToWhatsApp(): Promise<void> {
   if (isInitializing) {
     console.log('[WhatsApp] WhatsApp is already initializing, skipping duplicate call.');
@@ -267,6 +276,24 @@ export async function connectToWhatsApp(): Promise<void> {
           const remoteJid = msg.key.remoteJid;
           console.log('[JID Debug] remoteJid recebido:', remoteJid, '| fromMe:', isFromMe);
           
+          // Debugging logs for contextInfo and externalAdReply
+          if (msg.message) {
+            const contextInfo = 
+              msg.message.extendedTextMessage?.contextInfo ||
+              msg.message.imageMessage?.contextInfo ||
+              msg.message.videoMessage?.contextInfo ||
+              msg.message.buttonsResponseMessage?.contextInfo;
+
+            if (contextInfo) {
+              if (contextInfo.externalAdReply) {
+                console.log('=== EXTERNAL AD REPLY (RAW) ===');
+                console.log(JSON.stringify(contextInfo.externalAdReply, null, 2));
+              }
+              console.log('=== CONTEXT INFO COMPLETO (RAW) ===');
+              console.log(JSON.stringify(contextInfo, null, 2));
+            }
+          }
+
           if (!remoteJid || (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid'))) continue;
 
           // Clean phone number (extract digits before @)
@@ -309,12 +336,17 @@ export async function connectToWhatsApp(): Promise<void> {
 
             // 2. Look for ctwa_clid (Meta Click-to-WhatsApp Ad conversion data)
             const matchedCtwaClid = extractCtwaClid(msg);
+            let uniqueEventId: string | undefined = undefined;
             if (matchedCtwaClid) {
               console.log(`[WhatsApp CTWA Debug] Successfully extracted ctwa_clid: ${matchedCtwaClid} from incoming message of ${cleanPhone}`);
+              
+              // Generate a unique event ID for deduplication in Meta Conversions API
+              uniqueEventId = generateCtwaUniqueEventId();
+              console.log(`[WhatsApp CTWA Debug] Generated unique_event_id: ${uniqueEventId} for lead ${cleanPhone}`);
             }
 
-            // Save/Update lead (with optional cl_xxx and ctwa_clid in parallel)
-            dbActions.saveLead(cleanPhone, messageText, matchedClickId, matchedCtwaClid || undefined);
+            // Save/Update lead (with optional cl_xxx, ctwa_clid and unique_event_id)
+            dbActions.saveLead(cleanPhone, messageText, matchedClickId, matchedCtwaClid || undefined, uniqueEventId);
           }
         }
       } catch (upsertError: any) {
