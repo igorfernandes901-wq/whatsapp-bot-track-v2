@@ -121,6 +121,17 @@ export async function connectToWhatsApp(): Promise<void> {
 
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
+    // Protection against duplicate active sockets
+    if (sock) {
+      console.log('[WhatsApp Warning] Socket already exists during initialization. Closing previous socket first to prevent duplicate active connections...');
+      try {
+        sock.end(undefined);
+      } catch (e) {
+        console.error('[WhatsApp] Error closing old socket:', e);
+      }
+      sock = null;
+    }
+
     sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
@@ -128,9 +139,25 @@ export async function connectToWhatsApp(): Promise<void> {
       browser: ['Igor Track Teste', 'Chrome', '1.0.0']
     });
 
+    console.log('[WhatsApp] Socket successfully created using makeWASocket.');
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+      // Diagnostic log showing the full raw ConnectionState update object
+      try {
+        console.log('[WhatsApp Connection Update RAW]:', JSON.stringify(update, (key, value) => {
+          if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+            return `[Buffer/Uint8Array length=${value.length}]`;
+          }
+          if (value && typeof value === 'object' && value.constructor && value.constructor.name === 'Boom') {
+            return { message: value.message, statusCode: value.output?.statusCode, data: value.data };
+          }
+          return value;
+        }, 2));
+      } catch (e) {
+        console.log('[WhatsApp Connection Update RAW - fallback error serializing]:', update);
+      }
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -226,64 +253,84 @@ export async function connectToWhatsApp(): Promise<void> {
     };
 
     sock.ev.on('messages.upsert', async (m) => {
-      if (m.type !== 'notify') return;
+      try {
+        console.log('[RAW EVENT] messages.upsert disparou! Tipo:', m.type, '- Quantidade de mensagens:', m.messages?.length);
 
-      for (const msg of m.messages) {
-        // Skip messages sent by me (outgoing handled differently if needed, let's capture incoming)
-        const isFromMe = msg.key.fromMe;
-        const remoteJid = msg.key.remoteJid;
-        
-        if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+        if (m.type !== 'notify') return;
 
-        // Clean phone number (extract digits before @)
-        const cleanPhone = remoteJid.split('@')[0];
-        
-        // Extract message content
-        let messageText = 
-          msg.message?.conversation || 
-          msg.message?.extendedTextMessage?.text || 
-          msg.message?.imageMessage?.caption || 
-          '';
-
-        const direction = isFromMe ? 'outgoing' : 'incoming';
-
-        // Log complete payload of received message for CTWA Click-to-WhatsApp debugging
-        if (!isFromMe) {
-          console.log(`[WhatsApp CTWA Debug] FULL MESSAGE PAYLOAD from ${cleanPhone}:`, JSON.stringify(msg, null, 2));
+        for (const msg of m.messages) {
+          // Skip messages sent by me (outgoing handled differently if needed, let's capture incoming)
+          const isFromMe = msg.key.fromMe;
+          const remoteJid = msg.key.remoteJid;
           
-          if (!messageText) {
-            messageText = '[Mensagem de Mídia/Botão/Meta Click-to-WhatsApp]';
+          if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+          // Clean phone number (extract digits before @)
+          const cleanPhone = remoteJid.split('@')[0];
+          
+          // Extract message content
+          let messageText = 
+            msg.message?.conversation || 
+            msg.message?.extendedTextMessage?.text || 
+            msg.message?.imageMessage?.caption || 
+            '';
+
+          const direction = isFromMe ? 'outgoing' : 'incoming';
+
+          // Log complete payload of received message for CTWA Click-to-WhatsApp debugging
+          if (!isFromMe) {
+            console.log(`[WhatsApp CTWA Debug] FULL MESSAGE PAYLOAD from ${cleanPhone}:`, JSON.stringify(msg, null, 2));
+            
+            if (!messageText) {
+              messageText = '[Mensagem de Mídia/Botão/Meta Click-to-WhatsApp]';
+            }
+          }
+
+          if (!messageText && isFromMe) continue;
+
+          console.log(`[WhatsApp] Message received from ${cleanPhone} (${direction}): "${messageText}"`);
+
+          // Always log message in the db
+          dbActions.logMessage(cleanPhone, messageText, direction);
+
+          if (!isFromMe) {
+            // 1. Look for click_id with 'cl_' prefix in the message (Site campaigns)
+            const clickIdMatch = messageText.match(/\bcl_[a-zA-Z0-9]{8,15}\b/);
+            let matchedClickId: string | undefined = undefined;
+
+            if (clickIdMatch) {
+              matchedClickId = clickIdMatch[0];
+              console.log(`[WhatsApp] Matched Click ID: ${matchedClickId} in message from ${cleanPhone}`);
+            }
+
+            // 2. Look for ctwa_clid (Meta Click-to-WhatsApp Ad conversion data)
+            const matchedCtwaClid = extractCtwaClid(msg);
+            if (matchedCtwaClid) {
+              console.log(`[WhatsApp CTWA Debug] Successfully extracted ctwa_clid: ${matchedCtwaClid} from incoming message of ${cleanPhone}`);
+            }
+
+            // Save/Update lead (with optional cl_xxx and ctwa_clid in parallel)
+            dbActions.saveLead(cleanPhone, messageText, matchedClickId, matchedCtwaClid || undefined);
           }
         }
-
-        if (!messageText && isFromMe) continue;
-
-        console.log(`[WhatsApp] Message received from ${cleanPhone} (${direction}): "${messageText}"`);
-
-        // Always log message in the db
-        dbActions.logMessage(cleanPhone, messageText, direction);
-
-        if (!isFromMe) {
-          // 1. Look for click_id with 'cl_' prefix in the message (Site campaigns)
-          const clickIdMatch = messageText.match(/\bcl_[a-zA-Z0-9]{8,15}\b/);
-          let matchedClickId: string | undefined = undefined;
-
-          if (clickIdMatch) {
-            matchedClickId = clickIdMatch[0];
-            console.log(`[WhatsApp] Matched Click ID: ${matchedClickId} in message from ${cleanPhone}`);
-          }
-
-          // 2. Look for ctwa_clid (Meta Click-to-WhatsApp Ad conversion data)
-          const matchedCtwaClid = extractCtwaClid(msg);
-          if (matchedCtwaClid) {
-            console.log(`[WhatsApp CTWA Debug] Successfully extracted ctwa_clid: ${matchedCtwaClid} from incoming message of ${cleanPhone}`);
-          }
-
-          // Save/Update lead (with optional cl_xxx and ctwa_clid in parallel)
-          dbActions.saveLead(cleanPhone, messageText, matchedClickId, matchedCtwaClid || undefined);
-        }
+      } catch (upsertError: any) {
+        console.error('[WhatsApp Critical] Error inside messages.upsert handler:', upsertError, upsertError?.stack);
       }
     });
+
+    // Count and log the messages.upsert listeners safely to guarantee registration
+    let listenerCount = 'N/A';
+    try {
+      if (sock.ev && typeof (sock.ev as any).listenerCount === 'function') {
+        listenerCount = (sock.ev as any).listenerCount('messages.upsert').toString();
+      } else if (sock.ev && (sock.ev as any).emitter && typeof (sock.ev as any).emitter.listenerCount === 'function') {
+        listenerCount = (sock.ev as any).emitter.listenerCount('messages.upsert').toString();
+      } else if (sock.ev && (sock.ev as any).listeners) {
+        const l = (sock.ev as any).listeners('messages.upsert');
+        if (Array.isArray(l)) listenerCount = l.length.toString();
+      }
+    } catch (_) {}
+    console.log(`[WhatsApp Listener Diagnostic] Registered messages.upsert. Total active listenerCount: ${listenerCount}`);
 
   } catch (err: any) {
     console.error('[WhatsApp] Critical error during WhatsApp connection setup:', err);
@@ -291,4 +338,16 @@ export async function connectToWhatsApp(): Promise<void> {
     whatsappStatus.error = err?.message || 'Erro crítico na conexão';
     isInitializing = false;
   }
+}
+
+// Global process error catchers to prevent silent crashes and log details
+if (!(process as any)._whatsappLoggingRegistered) {
+  (process as any)._whatsappLoggingRegistered = true;
+  process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL - PROCESS] Uncaught Exception detected in Node process:', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL - PROCESS] Unhandled Rejection detected at:', promise, 'reason:', reason);
+  });
 }
