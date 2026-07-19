@@ -895,6 +895,26 @@ async function startServer() {
     }
   });
 
+  // === 4. WEBHOOK OFICIAL DA META (WHATSAPP CLOUD API) ===
+  app.get('/webhook/meta', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode === 'subscribe' && token === 'igortrack_2026_abc123') {
+      console.log('[Meta Webhook] Handshake successful.');
+      return res.status(200).send(challenge);
+    } else {
+      console.log('[Meta Webhook] Handshake failed. Invalid verify token or mode.');
+      return res.sendStatus(403);
+    }
+  });
+
+  app.post('/webhook/meta', (req, res) => {
+    console.log('[Meta Webhook] Payload recebido:', JSON.stringify(req.body, null, 2));
+    return res.status(200).send('EVENT_RECEIVED');
+  });
+
   // Vite Integration / Production Static Assets
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
