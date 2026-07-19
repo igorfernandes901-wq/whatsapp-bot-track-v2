@@ -59,7 +59,6 @@ db.exec(`
     click_id TEXT,
     utm_campaign TEXT,
     ctwa_clid TEXT,
-    unique_event_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(click_id) REFERENCES clicks(click_id)
   );
@@ -99,14 +98,6 @@ try {
   // Column already exists or error is expected if already added
 }
 
-// Safe migration to add unique_event_id column to leads table if it doesn't exist
-try {
-  db.exec("ALTER TABLE leads ADD COLUMN unique_event_id TEXT");
-  console.log("[Database] Successfully added unique_event_id column to leads table.");
-} catch (e) {
-  // Column already exists or error is expected if already added
-}
-
 // Types
 export interface Product {
   id: number;
@@ -136,7 +127,6 @@ export interface Lead {
   click_id?: string;
   utm_campaign?: string;
   ctwa_clid?: string;
-  unique_event_id?: string;
   created_at: string;
 }
 
@@ -243,7 +233,7 @@ export const dbActions = {
     return null;
   },
 
-  saveLead(phone: string, first_message: string, click_id?: string, ctwa_clid?: string, unique_event_id?: string): Lead {
+  saveLead(phone: string, first_message: string, click_id?: string, ctwa_clid?: string): Lead {
     // If click_id is provided, resolve campaign from the click
     let utm_campaign = '';
     if (click_id) {
@@ -255,24 +245,23 @@ export const dbActions = {
 
     const existing = this.getLeadByPhone(phone);
     if (existing) {
-      // Update first_message if not set, update click_id if provided, update ctwa_clid if provided, and update unique_event_id if provided
+      // Update first_message if not set, update click_id if provided, and update ctwa_clid if provided
       const stmt = db.prepare(`
         UPDATE leads 
         SET first_message = COALESCE(?, first_message),
             click_id = COALESCE(?, click_id),
             utm_campaign = COALESCE(NULLIF(?, ''), utm_campaign),
-            ctwa_clid = COALESCE(?, ctwa_clid),
-            unique_event_id = COALESCE(?, unique_event_id)
+            ctwa_clid = COALESCE(?, ctwa_clid)
         WHERE phone = ?
       `);
-      stmt.run(first_message || null, click_id || null, utm_campaign || null, ctwa_clid || null, unique_event_id || null, phone);
+      stmt.run(first_message || null, click_id || null, utm_campaign || null, ctwa_clid || null, phone);
       return this.getLeadByPhone(phone)!;
     } else {
       const stmt = db.prepare(`
-        INSERT INTO leads (phone, first_message, click_id, utm_campaign, ctwa_clid, unique_event_id)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO leads (phone, first_message, click_id, utm_campaign, ctwa_clid)
+        VALUES (?, ?, ?, ?, ?)
       `);
-      stmt.run(phone, first_message, click_id || null, utm_campaign || null, ctwa_clid || null, unique_event_id || null);
+      stmt.run(phone, first_message, click_id || null, utm_campaign || null, ctwa_clid || null);
       return this.getLeadByPhone(phone)!;
     }
   },
